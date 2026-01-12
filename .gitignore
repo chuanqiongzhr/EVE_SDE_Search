@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build / Distribution
+build/
+dist/
+*.spec
+
+# EVE SDE Data (Large files, should be downloaded by the tool)
+eve_sde_jsonl/
+eve_sde_yaml/
+eve_sde_update/
+*.zip
+
+# VS Code
+.vscode/
+
+# System
+Thumbs.db
+Desktop.ini
