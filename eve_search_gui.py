@@ -6,7 +6,6 @@ A PyQt6-based tool for searching and browsing EVE Online Static Data Export (SDE
 Supports fuzzy search, token-based matching, and automatic updates.
 
 Author: ChuanQiong
-GitHub: [Your GitHub Repo Link]
 Created: 2026
 """
 
