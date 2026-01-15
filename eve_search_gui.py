@@ -63,8 +63,48 @@ class SearchWorker(QThread):
         self.keyword = keyword
         self.is_running = True
 
+    def calculate_score(self, keyword_list, raw_keyword, item_id, name_zh, name_en):
+        """
+        计算匹配置信度分数，分数越高排在越前面
+        """
+        score = 0
+        name_zh_lower = name_zh.lower()
+        name_en_lower = name_en.lower()
+        raw_keyword_lower = raw_keyword.lower()
+        
+        # 1. ID 精确匹配 (最高优先级)
+        if item_id and str(item_id) == raw_keyword:
+            return 100000
+
+        # 2. 名称精确匹配 (完全相等)
+        if raw_keyword_lower == name_zh_lower or raw_keyword_lower == name_en_lower:
+            return 90000
+
+        # 3. 名称以关键词开头 (前缀匹配)
+        if name_zh_lower.startswith(raw_keyword_lower) or name_en_lower.startswith(raw_keyword_lower):
+            score += 50000
+        
+        # 4. 名称包含完整关键词 (连续子串)
+        elif raw_keyword_lower in name_zh_lower or raw_keyword_lower in name_en_lower:
+            score += 30000
+        
+        # 5. 关键词组合匹配 (所有词都在，但在不同位置)
+        # 基础分 10000
+        score += 10000
+        
+        # 6. 长度惩罚 (名称越短，匹配越精确)
+        # 假设名称最长 1000，惩罚系数 10
+        min_len = min(len(name_zh) if name_zh else 999, len(name_en) if name_en else 999)
+        score -= min_len * 10
+        
+        # 7. 英文名匹配额外加分 (通常英文名更准确)
+        # if raw_keyword_lower in name_en_lower:
+        #     score += 5
+
+        return score
+
     def run(self):
-        total_found = 0
+        results = [] # 存储所有结果 (score, file_name, display_id, name_zh, name_en, json_line)
         sde_dir = get_sde_dir()
         
         if not os.path.exists(sde_dir):
@@ -73,7 +113,7 @@ class SearchWorker(QThread):
 
         files = [f for f in os.listdir(sde_dir) if f.endswith(".jsonl")]
         
-        # 预处理关键词：转小写并按空格分割
+        # 预处理关键词
         keyword_lower = self.keyword.lower()
         keywords_list = keyword_lower.split()
 
@@ -104,18 +144,16 @@ class SearchWorker(QThread):
                                 name_en = name_data
                                 name_zh = name_data
                             
-                            # 匹配逻辑 (多关键词混杂匹配 + 模糊子序列匹配)
-                            # 将中英文名合并为一个字符串进行搜索
+                            # 匹配逻辑
                             full_text = (name_en + " " + name_zh).lower()
                             
                             is_match = True
                             for kw in keywords_list:
-                                # 1. 尝试直接子串匹配 (最快)
+                                # 1. 尝试直接子串匹配
                                 if kw in full_text:
                                     continue
                                 
-                                # 2. 尝试子序列匹配 (例如 "高辟邪" 匹配 "高级辟邪")
-                                # 检查 kw 中的字符是否按顺序出现在 full_text 中
+                                # 2. 尝试子序列匹配
                                 iterator = iter(full_text)
                                 if not all(char in iterator for char in kw):
                                     is_match = False
@@ -123,15 +161,34 @@ class SearchWorker(QThread):
                             
                             if is_match:
                                 display_id = str(item_id) if item_id is not None else "N/A"
-                                # 发送包含完整 JSON 行的信号
-                                self.result_found.emit(file_name, display_id, name_zh, name_en, line.strip())
-                                total_found += 1
+                                
+                                # 计算分数
+                                score = self.calculate_score(keywords_list, self.keyword, display_id, name_zh, name_en)
+                                
+                                results.append({
+                                    "score": score,
+                                    "file_name": file_name,
+                                    "display_id": display_id,
+                                    "name_zh": name_zh,
+                                    "name_en": name_en,
+                                    "json_line": line.strip()
+                                })
+
                         except:
                             continue
             except:
                 pass
         
-        self.finished.emit(total_found)
+        # 排序：分数从高到低
+        results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # 发送结果
+        for res in results:
+            if not self.is_running:
+                break
+            self.result_found.emit(res["file_name"], res["display_id"], res["name_zh"], res["name_en"], res["json_line"])
+            
+        self.finished.emit(len(results))
 
     def stop(self):
         self.is_running = False
